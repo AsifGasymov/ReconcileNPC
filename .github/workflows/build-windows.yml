@@ -1,0 +1,51 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller pillow
+          pip install -r requirements.txt
+
+      - name: Convert PNG icon to ICO
+        run: |
+          python -c "
+          from PIL import Image
+          img = Image.open('resources/icons/app.png')
+          img.save('resources/icons/app.ico', format='ICO', sizes=[(256,256),(128,128),(64,64),(32,32),(16,16)])
+          "
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onedir --windowed `
+            --name NPCMode `
+            --icon resources/icons/app.ico `
+            --add-data "resources;resources" `
+            main.py
+
+      - name: Zip output
+        run: |
+          Compress-Archive -Path dist\NPCMode\* -DestinationPath NPCMode-windows.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NPCMode-windows
+          path: NPCMode-windows.zip
+          retention-days: 30
