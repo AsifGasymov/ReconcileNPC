@@ -160,6 +160,11 @@ def _merge_provsystems(paths: Iterable[str]) -> str:
     return tmp.name
 
 
+def _sanitize_filename(name: str) -> str:
+    name = re.sub(r'[\\/:*?"<>|]', '', name)
+    return name.strip()[:40]
+
+
 def _fmt_num(val) -> str:
     if val is None or str(val) in ("", "nan", "None"):
         return ""
@@ -275,7 +280,12 @@ def run_reconciliation(*, grafana_path: str, cdq_paths: list[str],
     sheet1 = test_df[sheet1_cols].copy()
     sheet1.columns = sheet1_names
 
-    out_name = f"Reconciliation_{datetime.now().strftime('%d-%m-%Y')}.xlsx"
+    merchants = prov_lookup["_prov_merchant"].dropna()
+    merchants = merchants[merchants.astype(str).str.strip() != ""]
+    company = _sanitize_filename(merchants.mode()[0]) if not merchants.empty else ""
+
+    date_tag = datetime.now().strftime('%d-%m-%Y')
+    out_name = f"Reconciliation_{company}_{date_tag}.xlsx" if company else f"Reconciliation_{date_tag}.xlsx"
     from pathlib import Path
     out_path = str(Path(out_dir) / out_name)
 
