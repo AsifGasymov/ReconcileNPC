@@ -13,6 +13,7 @@ from services.worker import start_worker
 
 from ..widgets.file_card import FileCard
 from ..widgets.folder_card import FolderCard
+from ..widgets.multi_file_card import MultiFileCard
 from ..widgets.progress_card import ProgressCard
 from ..widgets.result_card import ResultCard
 
@@ -47,15 +48,17 @@ class ERPView(QWidget):
         layout.addWidget(sub)
         layout.addSpacing(8)
 
-        self._trn = FileCard(
-            "Transaction report",
-            hint="CSV or XLSX",
+        self._trn = MultiFileCard(
+            "Transaction reports",
+            hint="Drop up to 9 CSV or XLSX files",
             extensions=[".csv", ".xlsx"],
+            max_items=9,
         )
-        self._stm = FileCard(
-            "Statement",
-            hint="XLSX with FX rates",
+        self._stm = MultiFileCard(
+            "Statements",
+            hint="Drop up to 9 XLSX files with FX rates",
             extensions=[".xlsx"],
+            max_items=9,
         )
         self._ord = FileCard(
             "Order Statement (optional)",
@@ -94,17 +97,15 @@ class ERPView(QWidget):
 
         layout.addStretch()
 
-        self._trn.file_selected.connect(lambda *_: self._refresh_enabled())
-        self._trn.cleared.connect(self._refresh_enabled)
-        self._stm.file_selected.connect(lambda *_: self._refresh_enabled())
-        self._stm.cleared.connect(self._refresh_enabled)
+        self._trn.paths_changed.connect(lambda *_: self._refresh_enabled())
+        self._stm.paths_changed.connect(lambda *_: self._refresh_enabled())
 
         self._thread = None
         self._worker = None
 
     def _refresh_enabled(self) -> None:
         ready = bool(
-            self._trn.path() and self._stm.path() and self._output.path()
+            self._trn.paths() and self._stm.paths() and self._output.path()
         )
         self._run_btn.setEnabled(ready)
 
@@ -118,8 +119,8 @@ class ERPView(QWidget):
         self._thread, self._worker = start_worker(
             self,
             run_erp_merger,
-            transactions_path=self._trn.path(),
-            statement_path=self._stm.path(),
+            transactions_paths=self._trn.paths(),
+            statement_paths=self._stm.paths(),
             orders_path=self._ord.path() or None,
             out_dir=self._output.path(),
         )
@@ -145,15 +146,16 @@ class ERPView(QWidget):
         self._progress.set_progress(100)
         self._progress.set_status("Done", "ok")
 
-        archived = archive_output(result.out_path, STAGE_KEY)
+        for path in result.out_paths:
+            archived = archive_output(path, STAGE_KEY)
+            if archived:
+                self._progress.append_log(f"Archived → {archived}")
         prune_old_backups()
-        if archived:
-            self._progress.append_log(f"Archived → {archived}")
 
         self._result.show_result(
             stats=[
+                ("Files", str(len(result.out_paths))),
                 ("Rows", str(result.rows)),
-                ("FX rates", str(result.rates_count)),
                 ("Net GBP", f"{result.total_net_gbp:,.2f}"),
             ],
             out_path=result.out_path,

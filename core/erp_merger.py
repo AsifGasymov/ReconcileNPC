@@ -14,7 +14,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from .excel_styles import (
-    ALT, DARK_BLUE, GOLD, GOLD_ALT, GREEN_FILL, MID_BLUE, WHITE,
+    ALT, DARK_BLUE, GOLD, GOLD_ALT, GREEN_FILL, MID_BLUE, ORANGE_ALT, ORANGE_FILL, WHITE,
     data_font, header_font, style_cell,
 )
 
@@ -28,6 +28,7 @@ class ERPResult:
     rates_count: int
     total_net_gbp: float
     out_path: str
+    out_paths: list[str]
 
 
 FEE_COLS = [
@@ -52,6 +53,16 @@ NUMBER_FORMATS = {
     "Trn Amount GBP": "#,##0.00", "Total Fees": "#,##0.0000",
     "Net Amount": "#,##0.0000", "Net Amount GBP": "#,##0.00",
 }
+
+
+def _sanitize_filename(name: str) -> str:
+    name = re.sub(r'[\\/:*?"<>|]', '', name)
+    return name.strip()[:40]
+
+
+def _is_priority_row(pid) -> bool:
+    s = str(pid).strip() if pd.notna(pid) else ""
+    return s == "" or s.lower().startswith("charge for")
 
 
 def _extract_rates(stmt_path: str) -> tuple[dict[tuple[str, str], float], str]:
@@ -147,6 +158,9 @@ def _build_workbook(trn_df: pd.DataFrame, rates: dict, stmt_date: str,
 
     trn_df["FX Rate to GBP"] = trn_df.apply(get_rate, axis=1)
 
+    trn_df["_priority"] = trn_df["Payment ID"].apply(_is_priority_row)
+    trn_df = trn_df.sort_values("_priority", ascending=False).reset_index(drop=True)
+
     present_fees = [c for c in FEE_COLS if c in trn_df.columns]
     for c in present_fees:
         trn_df[c] = pd.to_numeric(trn_df[c], errors="coerce").fillna(0)
@@ -183,6 +197,7 @@ def _build_workbook(trn_df: pd.DataFrame, rates: dict, stmt_date: str,
     src_cols = [c[0] for c in OUTPUT_COLS]
     for ri, (_, row) in enumerate(trn_df.iterrows(), 3):
         even = ri % 2 == 0
+        is_priority = bool(row.get("_priority", False))
         for ci, col in enumerate(src_cols, 1):
             val = row.get(col)
             if not isinstance(val, str) and pd.isna(val):
@@ -190,7 +205,9 @@ def _build_workbook(trn_df: pd.DataFrame, rates: dict, stmt_date: str,
             if col in TEXT_COLS and val is not None:
                 val = str(val).split(".")[0]
             is_gold = col in GOLD_COLS
-            if is_gold:
+            if is_priority:
+                fill = ORANGE_FILL if even else ORANGE_ALT
+            elif is_gold:
                 fill = GOLD if even else GOLD_ALT
             else:
                 fill = ALT if even else WHITE
@@ -201,6 +218,7 @@ def _build_workbook(trn_df: pd.DataFrame, rates: dict, stmt_date: str,
                 cell.number_format = "@"
 
     ws1.freeze_panes = "A3"
+    trn_df.drop(columns=["_priority"], inplace=True, errors="ignore")
 
     # Sheet 2: FX Rates
     ws2 = wb.create_sheet("FX Rates")
@@ -282,38 +300,56 @@ def _build_workbook(trn_df: pd.DataFrame, rates: dict, stmt_date: str,
     return len(trn_df), len(rates), float(summary["Total_Net_GBP"].sum())
 
 
-def run_erp_merger(*, transactions_path: str, statement_path: str,
+def run_erp_merger(*, transactions_paths: list[str], statement_paths: list[str],
                    out_dir: str, orders_path: Optional[str] = None,
                    log: Optional[LogFn] = None) -> ERPResult:
-    """Execute the ERP merger pipeline and write the workbook."""
+    """Execute the ERP merger pipeline for one or more transaction/statement pairs."""
     def lg(msg: str) -> None:
         if log:
             log(msg)
-
-    lg("Reading statement…")
-    rates, stmt_date = _extract_rates(statement_path)
-    lg(f"  rates: {len(rates)} · date: {stmt_date or 'n/a'}")
-
-    lg("Reading transactions…")
-    trn_df = _read_transactions(transactions_path)
-    lg(f"  rows: {len(trn_df)}")
 
     orders_df = None
     if orders_path:
         lg("Reading order statement…")
         orders_df = _read_orders(orders_path)
 
-    date_tag = stmt_date.replace(".", "-") if stmt_date else \
-        datetime.now().strftime("%d-%m-%Y")
-    out_name = f"ERP_Upload_{date_tag}.xlsx"
-    out_path = str(Path(out_dir) / out_name)
+    pairs = list(zip(transactions_paths, statement_paths))
+    total_rows = 0
+    total_rates = 0
+    total_gbp = 0.0
+    out_paths: list[str] = []
 
-    lg("Writing workbook…")
-    rows, n_rates, total_gbp = _build_workbook(
-        trn_df, rates, stmt_date, out_path, orders_df,
-    )
+    for i, (trn_path, stmt_path) in enumerate(pairs, 1):
+        prefix = f"[{i}/{len(pairs)}] " if len(pairs) > 1 else ""
+
+        lg(f"{prefix}Reading statement…")
+        rates, stmt_date = _extract_rates(stmt_path)
+        lg(f"  rates: {len(rates)} · date: {stmt_date or 'n/a'}")
+
+        lg(f"{prefix}Reading transactions…")
+        trn_df = _read_transactions(trn_path)
+        lg(f"  rows: {len(trn_df)}")
+
+        companies = trn_df["Company"].dropna() if "Company" in trn_df.columns else pd.Series(dtype=str)
+        companies = companies[companies.astype(str).str.strip().ne("")]
+        company = _sanitize_filename(str(companies.mode()[0])) if not companies.empty else "Unknown"
+
+        date_tag = stmt_date.replace(".", "-") if stmt_date else datetime.now().strftime("%d-%m-%Y")
+        out_name = f"ERP_{company}_{date_tag}.xlsx"
+        out_path = str(Path(out_dir) / out_name)
+
+        lg(f"{prefix}Writing {out_name}…")
+        rows, n_rates, gbp = _build_workbook(trn_df, rates, stmt_date, out_path, orders_df)
+
+        total_rows += rows
+        total_rates = max(total_rates, n_rates)
+        total_gbp += gbp
+        out_paths.append(out_path)
 
     return ERPResult(
-        rows=rows, rates_count=n_rates,
-        total_net_gbp=total_gbp, out_path=out_path,
+        rows=total_rows,
+        rates_count=total_rates,
+        total_net_gbp=total_gbp,
+        out_path=out_dir,
+        out_paths=out_paths,
     )

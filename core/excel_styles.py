@@ -11,6 +11,8 @@ WHITE = PatternFill("solid", start_color="FFFFFF")
 GOLD = PatternFill("solid", start_color="FFF2CC")
 GOLD_ALT = PatternFill("solid", start_color="FEF9E7")
 GREEN_FILL = PatternFill("solid", start_color="E2EFDA")
+ORANGE_FILL = PatternFill("solid", start_color="FCE4D6")
+ORANGE_ALT = PatternFill("solid", start_color="F9D0BB")
 
 THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
