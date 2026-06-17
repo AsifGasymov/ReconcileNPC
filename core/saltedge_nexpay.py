@@ -52,7 +52,18 @@ SE_PROC_COLS: list[tuple[str, int]] = [
     ("SE Date",           16),
 ]
 
-# Sheet 4 — all unmatched (SE + NX combined)
+# Sheet 3 — NX rows missing from SE
+NX_PROC_COLS: list[tuple[str, int]] = [
+    ("NX Creation Date",    18),
+    ("NX Processing Date",  18),
+    ("NX Beneficiary",      24),
+    ("NX Account",          24),
+    ("NX Amount (EUR)",     16),
+    ("NX Payment number",   18),
+    ("Details",             40),
+]
+
+# Sheet 5 — all unmatched (SE + NX combined)
 UNMATCHED_COLS: list[tuple[str, int]] = [
     ("Source",                  14),
     ("Status",                  16),
@@ -70,8 +81,9 @@ AMOUNT_COLS = {"SE Amount (EUR)", "NX Amount (EUR)", "SE Fee", "Difference", "Am
 class NexpayResult:
     matched: int                  # sheet 1 — all matched
     se_processed_nx_missing: int  # sheet 2 — SE processed, no NX match
-    matched_exc: int              # sheet 3 — matched but not processed
-    unmatched: int                # sheet 4 — SE_ONLY + NX_ONLY
+    nx_processed_se_missing: int  # sheet 3 — NX rows, no SE match
+    matched_exc: int              # sheet 4 — matched but not processed
+    unmatched: int                # sheet 5 — SE_ONLY + NX_ONLY
     total_se_amount: float
     total_nx_amount: float
     out_path: str
@@ -275,6 +287,29 @@ def run_saltedge_nexpay(
                 else:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
 
+    def _write_nx_proc_rows(ws, df: pd.DataFrame) -> None:
+        for ri, (_, row) in enumerate(df.iterrows(), start=2):
+            alt = ALT if ri % 2 == 0 else WHITE
+            values = [
+                _v(row, "Creation Date"),
+                _v(row, "Processing Date"),
+                _v(row, "Beneficiary / Sender"),
+                _v(row, "Account number"),
+                row["_nx_amt"] if row["_nx_amt"] != 0 else None,
+                _v(row, "Payment number"),
+                _v(row, "Details"),
+            ]
+            for ci, (val, (col_name, _)) in enumerate(zip(values, NX_PROC_COLS), start=1):
+                cell = ws.cell(row=ri, column=ci, value=val)
+                cell.font = dfont
+                cell.border = BORDER
+                cell.fill = alt
+                if col_name in AMOUNT_COLS and val is not None:
+                    cell.number_format = NUMBER_FMT
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+
     def _write_unmatched_rows(ws, se_df: pd.DataFrame, nx_df: pd.DataFrame) -> None:
         ri = 2
         for _, row in se_df.iterrows():
@@ -333,31 +368,37 @@ def run_saltedge_nexpay(
     _write_headers(ws2, SE_PROC_COLS)
     _write_se_proc_rows(ws2, se_proc_nx_miss)
 
-    # Sheet 3 — Matched exceptions (non-processed)
-    ws3 = wb.create_sheet("Exceptions")
-    _write_headers(ws3, MATCHED_COLS)
-    _write_matched_rows(ws3, matched_exc, ORANGE_FILL)
+    # Sheet 3 — NX processed / SE missing
+    ws3 = wb.create_sheet("NX Processed – SE Missing")
+    _write_headers(ws3, NX_PROC_COLS)
+    _write_nx_proc_rows(ws3, nx_only_all)
 
-    # Sheet 4 — All unmatched (SE + NX)
-    ws4 = wb.create_sheet("Unmatched")
-    _write_headers(ws4, UNMATCHED_COLS)
-    _write_unmatched_rows(ws4, se_only_all, nx_only_all)
+    # Sheet 4 — Matched exceptions (non-processed)
+    ws4 = wb.create_sheet("Exceptions")
+    _write_headers(ws4, MATCHED_COLS)
+    _write_matched_rows(ws4, matched_exc, ORANGE_FILL)
+
+    # Sheet 5 — All unmatched (SE + NX)
+    ws5 = wb.create_sheet("Unmatched")
+    _write_headers(ws5, UNMATCHED_COLS)
+    _write_unmatched_rows(ws5, se_only_all, nx_only_all)
 
     # ── Summary sheet ────────────────────────────────────────────────────────
-    ws5 = wb.create_sheet("Summary")
-    ws5.freeze_panes = "A2"
+    ws6 = wb.create_sheet("Summary")
+    ws6.freeze_panes = "A2"
     for ci, (hdr, width) in enumerate([("Metric", 32), ("Value", 18)], start=1):
-        cell = ws5.cell(row=1, column=ci, value=hdr)
+        cell = ws6.cell(row=1, column=ci, value=hdr)
         cell.fill = DARK_BLUE
         cell.font = hfont
         cell.border = BORDER
         cell.alignment = Alignment(horizontal="center", vertical="center")
-        ws5.column_dimensions[cell.column_letter].width = width
+        ws6.column_dimensions[cell.column_letter].width = width
 
     summary_rows = [
         ("Matched (all)",              n_matched),
         ("  — of which exceptions",    n_matched_exc),
         ("SE processed / NX missing",  n_se_proc_miss),
+        ("NX processed / SE missing",  n_nx_only),
         ("Unmatched (SE + NX total)",  n_unmatched),
         ("  — SaltEdge only",          n_se_only),
         ("  — Nexpay only",            n_nx_only),
@@ -366,9 +407,9 @@ def run_saltedge_nexpay(
         ("Difference",                 round(total_se - total_nx, 2)),
     ]
     for ri, (label, val) in enumerate(summary_rows, start=2):
-        style_cell(ws5, ri, 1, label, fill=ALT if ri % 2 == 0 else WHITE, font=dfont)
+        style_cell(ws6, ri, 1, label, fill=ALT if ri % 2 == 0 else WHITE, font=dfont)
         is_num = isinstance(val, float)
-        style_cell(ws5, ri, 2, val,
+        style_cell(ws6, ri, 2, val,
                    fill=ALT if ri % 2 == 0 else WHITE,
                    font=dfont,
                    align="right",
@@ -386,6 +427,7 @@ def run_saltedge_nexpay(
     return NexpayResult(
         matched=n_matched,
         se_processed_nx_missing=n_se_proc_miss,
+        nx_processed_se_missing=n_nx_only,
         matched_exc=n_matched_exc,
         unmatched=n_unmatched,
         total_se_amount=round(total_se, 2),

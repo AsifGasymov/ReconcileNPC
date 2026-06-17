@@ -169,12 +169,13 @@ class NexpayView(QWidget):
         self._progress.set_status("Done", "ok")
         self._result.show_result(
             stats=[
-                ("Matched",         str(result.matched)),
+                ("Matched",           str(result.matched)),
                 ("SE proc / NX miss", str(result.se_processed_nx_missing)),
-                ("Exceptions",      str(result.matched_exc)),
-                ("Unmatched",       str(result.unmatched)),
-                ("SE Total EUR",    f"{result.total_se_amount:,.2f}"),
-                ("NX Total EUR",    f"{result.total_nx_amount:,.2f}"),
+                ("NX proc / SE miss", str(result.nx_processed_se_missing)),
+                ("Exceptions",        str(result.matched_exc)),
+                ("Unmatched",         str(result.unmatched)),
+                ("SE Total EUR",      f"{result.total_se_amount:,.2f}"),
+                ("NX Total EUR",      f"{result.total_nx_amount:,.2f}"),
             ],
             out_path=result.out_path,
         )
