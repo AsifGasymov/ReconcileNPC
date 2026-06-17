@@ -197,11 +197,11 @@ def run_saltedge_nexpay(
     se_status_col = merged.get("Payment status", pd.Series(dtype=str, index=merged.index))
     se_status_norm = se_status_col.astype(str).str.strip().str.lower()
 
-    # ── Sheet 1: all matched, failed rows first ───────────────────────────────
-    all_matched = merged[merged["_status"] == STATUS_MATCHED].copy()
-    _ps_norm = all_matched.get("Payment status", pd.Series(dtype=str, index=all_matched.index))
-    all_matched["_is_failed"] = _ps_norm.astype(str).str.strip().str.lower() == "failed"
-    all_matched = all_matched.sort_values("_is_failed", ascending=False)
+    # ── Sheet 1: matched + processed only ────────────────────────────────────
+    all_matched = merged[
+        (merged["_status"] == STATUS_MATCHED) &
+        (se_status_norm == "processed")
+    ].copy()
 
     # ── Sheet 2: SE processed rows with no NX match ───────────────────────────
     se_proc_nx_miss = merged[

@@ -203,10 +203,10 @@ def run_manobank(
     ).astype(str).str.strip().str.lower()
 
     # Groups
-    all_matched = merged[merged["_status"] == STATUS_MATCHED].copy()
-    _ps = all_matched.get("Payment status", pd.Series(dtype=str, index=all_matched.index))
-    all_matched["_is_failed"] = _ps.astype(str).str.strip().str.lower() == "failed"
-    all_matched = all_matched.sort_values("_is_failed", ascending=False)
+    all_matched = merged[
+        (merged["_status"] == STATUS_MATCHED) &
+        (se_status_norm == "processed")
+    ].copy()
 
     se_proc_mb_miss = merged[
         (merged["_status"] == STATUS_SE_ONLY) & (se_status_norm == "processed")
