@@ -117,9 +117,26 @@ def run_saltedge_nexpay(
 
     # SE keys: Payment ID uppercased for case-insensitive match, External ID as integer string
     se_nx["_key_pid"] = se_nx["Payment ID"].str.strip().str.upper()
-    se_nx["_key_ext"] = se_nx["External ID"].apply(
-        lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip() not in ("", "nan") else ""
-    )
+
+    def _ext_id_str(x) -> str:
+        if pd.isna(x):
+            return ""
+        s = str(x).strip()
+        if not s or s == "nan":
+            return ""
+        # Remove trailing .0 without float conversion (avoids precision loss on large ints)
+        if '.' in s and 'e' not in s.lower() and 'E' not in s:
+            s = s.split('.')[0]
+        elif 'e' in s.lower():
+            # Scientific notation — use Decimal to preserve precision
+            try:
+                from decimal import Decimal
+                s = str(int(Decimal(s)))
+            except Exception:
+                return ""
+        return s if s.lstrip('-').isdigit() else ""
+
+    se_nx["_key_ext"] = se_nx["External ID"].apply(_ext_id_str)
 
     # Nexpay: split Details into numeric (→ External ID) and alphanumeric (→ Payment ID)
     nx["_det_token"] = nx["Details"].astype(str).str.split().str[0].str.strip()
