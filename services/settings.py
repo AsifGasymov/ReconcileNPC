@@ -11,7 +11,7 @@ _DEFAULT_OUTPUT = Path.home() / "Desktop"
 
 
 def _settings() -> QSettings:
-    return QSettings("Cardaq", "NPCMode")
+    return QSettings("Cardaq", "ReconcilNPC")
 
 
 def get_backup_dir() -> Path:

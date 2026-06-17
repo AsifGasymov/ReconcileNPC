@@ -32,16 +32,17 @@ class NavButton(QPushButton):
 
 
 class Sidebar(QWidget):
-    # emits the stack index (0-3) corresponding to the selected stage
+    # emits the stack index corresponding to the selected stage
     stage_selected = Signal(int)
     settings_clicked = Signal()
     backups_clicked = Signal()
 
     # Stack layout:
-    # 0 = CDQ · Reconciliation
-    # 1 = CDQ · ERP Merger
-    # 2 = DCT · Reconciliation
-    # 3 = DCT · Rate Tool
+    # 0 = CDQ · Merger
+    # 1 = DCT · Reconciliation
+    # 2 = DCT · Rate Tool
+    # 3 = Saltedge · ManoBank
+    # 4 = Saltedge · Nexpay
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -53,7 +54,7 @@ class Sidebar(QWidget):
         layout.setSpacing(4)
 
         # Brand
-        brand = QLabel("NPCMode")
+        brand = QLabel("ReconcilNPC")
         brand.setObjectName("brand")
         sub = QLabel("RECONCILIATION SUITE")
         sub.setObjectName("brandSub")
@@ -65,12 +66,9 @@ class Sidebar(QWidget):
         layout.addWidget(_SectionLabel("CDQ"))
         layout.addSpacing(2)
 
-        self._cdq1 = NavButton("  1  ·  Reconciliation")
-        self._cdq2 = NavButton("  2  ·  ERP Merger")
+        self._cdq1 = NavButton("  1  ·  Merger")
         self._cdq1.clicked.connect(lambda: self._select(0))
-        self._cdq2.clicked.connect(lambda: self._select(1))
         layout.addWidget(self._cdq1)
-        layout.addWidget(self._cdq2)
 
         layout.addSpacing(14)
 
@@ -80,10 +78,23 @@ class Sidebar(QWidget):
 
         self._dct1 = NavButton("  1  ·  Reconciliation")
         self._dct2 = NavButton("  2  ·  Rate Tool")
-        self._dct1.clicked.connect(lambda: self._select(2))
-        self._dct2.clicked.connect(lambda: self._select(3))
+        self._dct1.clicked.connect(lambda: self._select(1))
+        self._dct2.clicked.connect(lambda: self._select(2))
         layout.addWidget(self._dct1)
         layout.addWidget(self._dct2)
+
+        layout.addSpacing(14)
+
+        # ── Saltedge section ──────────────────────────────────────────────────
+        layout.addWidget(_SectionLabel("SALTEDGE"))
+        layout.addSpacing(2)
+
+        self._se1 = NavButton("  1  ·  ManoBank")
+        self._se2 = NavButton("  2  ·  Nexpay")
+        self._se1.clicked.connect(lambda: self._select(3))
+        self._se2.clicked.connect(lambda: self._select(4))
+        layout.addWidget(self._se1)
+        layout.addWidget(self._se2)
 
         layout.addStretch()
 
@@ -110,7 +121,8 @@ class Sidebar(QWidget):
         layout.addSpacing(4)
         layout.addWidget(version)
 
-        self._all_btns = [self._cdq1, self._cdq2, self._dct1, self._dct2]
+        self._all_btns = [self._cdq1, self._dct1, self._dct2,
+                          self._se1, self._se2]
         self._select(0)
 
     def _select(self, idx: int) -> None:

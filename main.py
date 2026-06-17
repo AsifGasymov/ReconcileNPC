@@ -1,4 +1,4 @@
-"""NPCMode — Cardaq Reconciliation Suite."""
+"""ReconcilNPC — Cardaq Reconciliation Suite."""
 from __future__ import annotations
 
 import sys
@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 from ui.theme import apply_theme
 
-APP_NAME = "NPCMode"
+APP_NAME = "ReconcilNPC"
 APP_ORG = "Cardaq"
 APP_VERSION = "0.1.0"
 

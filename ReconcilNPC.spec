@@ -21,7 +21,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='NPCMode',
+    name='ReconcilNPC',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -41,11 +41,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='NPCMode',
+    name='ReconcilNPC',
 )
 app = BUNDLE(
     coll,
-    name='NPCMode.app',
+    name='ReconcilNPC.app',
     icon='resources/icons/app.icns',
     bundle_identifier=None,
 )

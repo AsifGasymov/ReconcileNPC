@@ -1,9 +1,10 @@
-"""Stage 2 — ERP Merger view."""
+"""CDQ Merger view."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QMimeData
 from PySide6.QtWidgets import (
-    QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,  # QVBoxLayout used in ERPView
 )
 
 from core.erp_merger import ERPResult, run_erp_merger
@@ -19,6 +20,51 @@ from ..widgets.result_card import ResultCard
 
 
 STAGE_KEY = "stage_2"
+
+
+class _RateLineEdit(QLineEdit):
+    """QLineEdit that normalises decimal separators on paste."""
+
+    def insertFromMimeData(self, source: QMimeData) -> None:
+        if source.hasText():
+            normalised = source.text().strip().replace(",", ".")
+            md = QMimeData()
+            md.setText(normalised)
+            super().insertFromMimeData(md)
+        else:
+            super().insertFromMimeData(source)
+
+
+class _EurRateCard(QFrame):
+    """Inline input card for the user-defined GBP→EUR conversion rate."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("card")
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(16, 10, 16, 10)
+        row.setSpacing(12)
+
+        title = QLabel("EUR Rate  (GBP → EUR)")
+        title.setObjectName("cardTitle")
+
+        hint = QLabel("Amount in GBP × rate  ·  EUR transactions use rate 1 automatically")
+        hint.setObjectName("cardSubtitle")
+
+        self._input = _RateLineEdit("1.00000")
+        self._input.setFixedWidth(160)
+        self._input.setAlignment(Qt.AlignRight)
+
+        row.addWidget(title)
+        row.addWidget(hint, 1)
+        row.addWidget(self._input)
+
+    def rate(self) -> float:
+        try:
+            return float(self._input.text().strip().replace(",", "."))
+        except ValueError:
+            return 1.0
 
 
 class ERPView(QWidget):
@@ -40,9 +86,11 @@ class ERPView(QWidget):
         layout.setContentsMargins(40, 32, 40, 32)
         layout.setSpacing(16)
 
-        title = QLabel("Stage 2 · CDQ")
+        title = QLabel("CDQ · Merger")
         title.setObjectName("h1")
-        sub = QLabel("Transactions × Statement (FX) × Orders  →  ERP upload workbook")
+        sub = QLabel(
+            "Transactions × Statement (FX rates) × Orders  →  ERP upload workbook"
+        )
         sub.setObjectName("hint")
         layout.addWidget(title)
         layout.addWidget(sub)
@@ -65,6 +113,7 @@ class ERPView(QWidget):
             hint="XLSX — used to map RRN → Payment ID",
             extensions=[".xlsx"],
         )
+        self._eur_rate = _EurRateCard()
         self._output = FolderCard(
             "Output folder",
             initial=str(get_output_dir(STAGE_KEY)),
@@ -75,9 +124,10 @@ class ERPView(QWidget):
         layout.addWidget(self._trn)
         layout.addWidget(self._stm)
         layout.addWidget(self._ord)
+        layout.addWidget(self._eur_rate)
         layout.addWidget(self._output)
 
-        self._run_btn = QPushButton("▶  Build ERP file")
+        self._run_btn = QPushButton("▶  Build CDQ report")
         self._run_btn.setObjectName("primary")
         self._run_btn.setCursor(Qt.PointingHandCursor)
         self._run_btn.setMinimumHeight(48)
@@ -122,6 +172,7 @@ class ERPView(QWidget):
             transactions_paths=self._trn.paths(),
             statement_paths=self._stm.paths(),
             orders_path=self._ord.path() or None,
+            eur_rate=self._eur_rate.rate(),
             out_dir=self._output.path(),
         )
         self._worker.log.connect(self._on_log)
@@ -156,7 +207,8 @@ class ERPView(QWidget):
             stats=[
                 ("Files", str(len(result.out_paths))),
                 ("Rows", str(result.rows)),
-                ("Net GBP", f"{result.total_net_gbp:,.2f}"),
+                ("Total GBP", f"{result.total_gbp:,.2f}"),
+                ("Total EUR", f"{result.total_eur:,.2f}"),
             ],
             out_path=result.out_path,
         )

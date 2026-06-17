@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set APP_NAME=NPCMode
+set APP_NAME=ReconcilNPC
 set ENTRY=main.py
 set ICON=resources\icons\app.ico
 

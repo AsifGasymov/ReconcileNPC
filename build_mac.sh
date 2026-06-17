@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="NPCMode"
+APP_NAME="ReconcilNPC"
 ENTRY="main.py"
 ICON="resources/icons/app.icns"
 

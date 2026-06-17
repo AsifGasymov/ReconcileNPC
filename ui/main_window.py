@@ -6,25 +6,26 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QMainWindow, QStackedWidget, QWidget,
 )
 
-from .stages.recon_view import ReconView
 from .stages.erp_view import ERPView
 from .stages.decta_recon_view import DectaReconView
 from .stages.dct_view import DCTView
+from .stages.saltedge_view import ManoBankView, NexpayView
 from .settings_view import SettingsView
 from .widgets.sidebar import Sidebar
 
 # Stack indices
-CDQ_RECON  = 0
-CDQ_ERP    = 1
-DCT_RECON  = 2
-DCT_RATE   = 3
-SETTINGS   = 4
+CDQ_ERP    = 0
+DCT_RECON  = 1
+DCT_RATE   = 2
+SE_MANO    = 3
+SE_NEXPAY  = 4
+SETTINGS   = 5
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NPCMode — Reconciliation Suite")
+        self.setWindowTitle("ReconcilNPC — Reconciliation Suite")
         self.setMinimumSize(1100, 720)
         self.resize(1240, 800)
 
@@ -38,11 +39,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._sidebar)
 
         self._stack = QStackedWidget()
-        self._stack.addWidget(ReconView())       # 0 CDQ Reconciliation
-        self._stack.addWidget(ERPView())         # 1 CDQ ERP Merger
-        self._stack.addWidget(DectaReconView())  # 2 DCT Reconciliation
-        self._stack.addWidget(DCTView())         # 3 DCT Rate Tool
-        self._stack.addWidget(SettingsView())    # 4 Settings
+        self._stack.addWidget(ERPView())         # 0 CDQ Merger
+        self._stack.addWidget(DectaReconView())  # 1 DCT Reconciliation
+        self._stack.addWidget(DCTView())         # 2 DCT Rate Tool
+        self._stack.addWidget(ManoBankView())    # 3 Saltedge ManoBank
+        self._stack.addWidget(NexpayView())      # 4 Saltedge Nexpay
+        self._stack.addWidget(SettingsView())    # 5 Settings
         layout.addWidget(self._stack, 1)
 
         self.setCentralWidget(root)
@@ -50,6 +52,7 @@ class MainWindow(QMainWindow):
         self._sidebar.stage_selected.connect(self._stack.setCurrentIndex)
         self._sidebar.settings_clicked.connect(
             lambda: self._stack.setCurrentIndex(SETTINGS))
+
         self._sidebar.backups_clicked.connect(self._open_backups)
 
         self._center_on_screen()
