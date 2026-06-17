@@ -37,7 +37,12 @@ MB_MATCHED_COLS: list[tuple[str, int]] = [
     ("MB Payer Account",   26),
     ("MB Amount (EUR)",    16),
     ("Difference",         14),
+    ("Cost (1.7%)",        14),
+    ("Fixed Fee",          12),
 ]
+
+COST_RATE      = 0.017
+MB_FIXED_FEE   = 0.25
 
 # Sheet 2 — SE processed, no MB match
 SE_PROC_COLS: list[tuple[str, int]] = [
@@ -71,7 +76,8 @@ MB_UNMATCHED_COLS: list[tuple[str, int]] = [
 ]
 
 AMOUNT_COLS = {
-    "SE Amount (EUR)", "MB Amount (EUR)", "SE Fee", "Difference", "Amount (EUR)"
+    "SE Amount (EUR)", "MB Amount (EUR)", "SE Fee", "Difference",
+    "Amount (EUR)", "Cost (1.7%)", "Fixed Fee",
 }
 
 
@@ -254,11 +260,12 @@ def run_manobank(
         for ri, (_, row) in enumerate(df.iterrows(), start=2):
             se_status = _v(row, "Payment status")
             alt = ALT if ri % 2 == 0 else WHITE
+            se_amt = row["_se_amt"]
             values = [
                 se_status,
                 _v(row, "Payment ID"),
                 _v(row, "Customer Name"),
-                row["_se_amt"] if row["_se_amt"] != 0 else None,
+                se_amt if se_amt != 0 else None,
                 row["_se_fee"] if row["_se_fee"] != 0 else None,
                 _v(row, "Date of Final Status Update"),
                 _v(row, "Date"),
@@ -267,6 +274,8 @@ def run_manobank(
                 _v(row, "Payer account"),
                 row["_mb_amt"] if row["_mb_amt"] != 0 else None,
                 row["_diff"],
+                round(se_amt * COST_RATE, 2) if se_amt != 0 else None,
+                MB_FIXED_FEE,
             ]
             status_fill = (
                 exc_fill if (exc_fill and se_status.lower().strip() != "processed")

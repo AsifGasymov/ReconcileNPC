@@ -40,7 +40,12 @@ MATCHED_COLS: list[tuple[str, int]] = [
     ("NX Amount (EUR)",     16),
     ("NX Payment number",   18),
     ("Difference",          14),
+    ("Cost (1.7%)",         14),
+    ("Fixed Fee",           12),
 ]
+
+COST_RATE     = 0.017
+NX_FIXED_FEE  = 0.30
 
 # Sheet 2 — SE processed rows missing from Nexpay
 SE_PROC_COLS: list[tuple[str, int]] = [
@@ -74,7 +79,10 @@ UNMATCHED_COLS: list[tuple[str, int]] = [
     ("Details / Account",       36),
 ]
 
-AMOUNT_COLS = {"SE Amount (EUR)", "NX Amount (EUR)", "SE Fee", "Difference", "Amount (EUR)"}
+AMOUNT_COLS = {
+    "SE Amount (EUR)", "NX Amount (EUR)", "SE Fee", "Difference",
+    "Amount (EUR)", "Cost (1.7%)", "Fixed Fee",
+}
 
 
 @dataclass
@@ -253,11 +261,12 @@ def run_saltedge_nexpay(
             se_status = _v(row, "Payment status")
             alt = ALT if ri % 2 == 0 else WHITE
 
+            se_amt = row["_se_amt"]
             values = [
                 se_status,
                 _v(row, "Payment ID"),
                 _v(row, "Customer Name"),
-                row["_se_amt"] if row["_se_amt"] != 0 else None,
+                se_amt if se_amt != 0 else None,
                 row["_se_fee"] if row["_se_fee"] != 0 else None,
                 _v(row, "Date of Final Status Update"),
                 _v(row, "Creation Date"),
@@ -267,6 +276,8 @@ def run_saltedge_nexpay(
                 row["_nx_amt"] if row["_nx_amt"] != 0 else None,
                 _v(row, "Payment number"),
                 row["_diff"],
+                round(se_amt * COST_RATE, 2) if se_amt != 0 else None,
+                NX_FIXED_FEE,
             ]
 
             status_fill = exc_fill if (exc_fill and se_status.lower().strip() != "processed") else row_fill
