@@ -375,8 +375,11 @@ def run_saltedge_nexpay(
                    number_format=NUMBER_FMT if is_num else None)
 
     # ── Save ─────────────────────────────────────────────────────────────────
+    from pathlib import Path as _Path
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = os.path.join(out_dir, f"nexpay_recon_{ts}.xlsx")
+    _out_dir = _Path(out_dir)
+    _out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = str(_out_dir.resolve() / f"nexpay_recon_{ts}.xlsx")
     wb.save(out_path)
     _log(f"Saved → {out_path}")
 
