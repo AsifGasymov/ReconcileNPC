@@ -115,8 +115,8 @@ def run_saltedge_nexpay(
     se_nx = se.copy()
     _log(f"System rows total: {len(se_nx)}")
 
-    # SE keys: Payment ID as-is, External ID as integer string
-    se_nx["_key_pid"] = se_nx["Payment ID"].str.strip()
+    # SE keys: Payment ID uppercased for case-insensitive match, External ID as integer string
+    se_nx["_key_pid"] = se_nx["Payment ID"].str.strip().str.upper()
     se_nx["_key_ext"] = se_nx["External ID"].apply(
         lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip() not in ("", "nan") else ""
     )
@@ -127,8 +127,8 @@ def run_saltedge_nexpay(
     nx_alpha   = nx[~_is_numeric].copy()
     nx_numeric = nx[_is_numeric].copy()
 
-    # Path A: alphanumeric → add "pay_" prefix → match SE Payment ID
-    nx_alpha["_join_key"] = "pay_" + nx_alpha["_det_token"]
+    # Path A: alphanumeric → add "pay_" prefix → match SE Payment ID (uppercased)
+    nx_alpha["_join_key"] = ("pay_" + nx_alpha["_det_token"]).str.upper()
     match_alpha = nx_alpha.merge(
         se_nx, left_on="_join_key", right_on="_key_pid", how="left", suffixes=("_nx", "_se")
     )
