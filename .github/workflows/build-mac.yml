@@ -1,0 +1,44 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onedir --windowed \
+            --name ReconcilNPC \
+            --icon resources/icons/app.icns \
+            --add-data "resources:resources" \
+            main.py
+
+      - name: Zip output
+        run: |
+          cd dist
+          zip -r ReconcilNPC-mac.zip ReconcilNPC.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReconcilNPC-mac
+          path: dist/ReconcilNPC-mac.zip
+          retention-days: 30
