@@ -149,7 +149,7 @@ def run_manobank(
 
     # ManoBank: extract token from Payment details field
     mb["_det_token"] = mb["Payment details"].apply(_extract_token)
-    _is_numeric = mb["_det_token"].str.match(r"^\d+$")
+    _is_numeric = mb["_det_token"].str.match(r"^\d+$").fillna(False)
     mb_alpha   = mb[~_is_numeric].copy()
     mb_numeric = mb[_is_numeric].copy()
 

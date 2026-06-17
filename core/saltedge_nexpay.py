@@ -148,7 +148,7 @@ def run_saltedge_nexpay(
 
     # Nexpay: split Details into numeric (→ External ID) and alphanumeric (→ Payment ID)
     nx["_det_token"] = nx["Details"].astype(str).str.split().str[0].str.strip()
-    _is_numeric = nx["_det_token"].str.match(r"^\d+$")
+    _is_numeric = nx["_det_token"].str.match(r"^\d+$").fillna(False)
     nx_alpha   = nx[~_is_numeric].copy()
     nx_numeric = nx[_is_numeric].copy()
 
