@@ -4,7 +4,49 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_EVEN
 from typing import Callable, Optional
+
+# Date candidates tried in order — (format, slice length, has_time)
+_DATE_FMT_CANDIDATES: list[tuple[str, int, bool]] = [
+    ("%Y-%m-%d %H:%M:%S", 19, True),
+    ("%Y-%m-%dT%H:%M:%S", 19, True),
+    ("%d.%m.%Y %H:%M:%S", 19, True),
+    ("%d/%m/%Y %H:%M:%S", 19, True),
+    ("%m/%d/%Y %H:%M:%S", 19, True),
+    ("%Y-%m-%d %H:%M",    16, True),
+    ("%d.%m.%Y %H:%M",    16, True),
+    ("%d/%m/%Y %H:%M",    16, True),
+    ("%Y-%m-%d",          10, False),
+    ("%d.%m.%Y",          10, False),
+    ("%d/%m/%Y",          10, False),
+    ("%m/%d/%Y",          10, False),
+]
+
+
+def _fmt_date_smart(val) -> str:
+    """Normalize any date/datetime input to dd.mm.yyyy or dd.mm.yyyy HH:MM:SS."""
+    if val is None:
+        return ""
+    if isinstance(val, datetime):
+        has_time = (val.hour, val.minute, val.second) != (0, 0, 0)
+        return val.strftime("%d.%m.%Y %H:%M:%S" if has_time else "%d.%m.%Y")
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none", "nat"):
+        return ""
+    for fmt, ln, has_time in _DATE_FMT_CANDIDATES:
+        try:
+            dt = datetime.strptime(s[:ln], fmt)
+        except ValueError:
+            continue
+        return dt.strftime("%d.%m.%Y %H:%M:%S" if has_time else "%d.%m.%Y")
+    try:
+        import pandas as _pd
+        dt = _pd.to_datetime(s, errors="raise")
+        has_time = (dt.hour, dt.minute, dt.second) != (0, 0, 0)
+        return dt.strftime("%d.%m.%Y %H:%M:%S" if has_time else "%d.%m.%Y")
+    except Exception:
+        return s
 
 import pandas as pd
 from openpyxl import Workbook
@@ -40,11 +82,18 @@ MATCHED_COLS: list[tuple[str, int]] = [
     ("NX Amount (EUR)",     16),
     ("NX Payment number",   18),
     ("Difference",          14),
-    ("Cost (1.7%)",         14),
+    ("Cost (1.7%+VAT)",     16),
     ("Fixed Fee",           12),
 ]
 
 COST_RATE     = 0.017
+VAT_MULT      = 1.2
+
+
+def _bankers_round(value, places: int = 2) -> float:
+    """Round half to even (banker's rounding) to `places` decimal digits."""
+    exp = Decimal("0." + "0" * places)
+    return float(Decimal(str(value)).quantize(exp, rounding=ROUND_HALF_EVEN))
 NX_FIXED_FEE  = 0.30
 
 # Sheet 2 — SE processed rows missing from Nexpay
@@ -81,7 +130,7 @@ UNMATCHED_COLS: list[tuple[str, int]] = [
 
 AMOUNT_COLS = {
     "SE Amount (EUR)", "NX Amount (EUR)", "SE Fee", "Difference",
-    "Amount (EUR)", "Cost (1.7%)", "Fixed Fee",
+    "Amount (EUR)", "Cost (1.7%+VAT)", "Fixed Fee",
 }
 
 
@@ -245,6 +294,10 @@ def run_saltedge_nexpay(
         val = row.get(col_name, "")
         return "" if pd.isna(val) else str(val)
 
+    def _vd(row, col_name: str):
+        val = row.get(col_name, "")
+        return "" if pd.isna(val) else _fmt_date_smart(val)
+
     def _write_headers(ws, cols: list[tuple[str, int]]) -> None:
         for ci, (hdr, width) in enumerate(cols, start=1):
             cell = ws.cell(row=1, column=ci, value=hdr)
@@ -262,21 +315,22 @@ def run_saltedge_nexpay(
             alt = ALT if ri % 2 == 0 else WHITE
 
             se_amt = row["_se_amt"]
+            nx_amt = row["_nx_amt"]
             values = [
                 se_status,
                 _v(row, "Payment ID"),
                 _v(row, "Customer Name"),
                 se_amt if se_amt != 0 else None,
                 row["_se_fee"] if row["_se_fee"] != 0 else None,
-                _v(row, "Date of Final Status Update"),
-                _v(row, "Creation Date"),
-                _v(row, "Processing Date"),
+                _vd(row, "Date of Final Status Update"),
+                _vd(row, "Creation Date"),
+                _vd(row, "Processing Date"),
                 _v(row, "Beneficiary / Sender"),
                 _v(row, "Account number"),
-                row["_nx_amt"] if row["_nx_amt"] != 0 else None,
+                nx_amt if nx_amt != 0 else None,
                 _v(row, "Payment number"),
                 row["_diff"],
-                round(se_amt * COST_RATE, 2) if se_amt != 0 else None,
+                _bankers_round(nx_amt * COST_RATE * VAT_MULT) if nx_amt != 0 else None,
                 NX_FIXED_FEE,
             ]
 
@@ -302,7 +356,7 @@ def run_saltedge_nexpay(
                 _v(row, "Payment status"),
                 row["_se_amt"] if row["_se_amt"] != 0 else None,
                 row["_se_fee"] if row["_se_fee"] != 0 else None,
-                _v(row, "Date of Final Status Update"),
+                _vd(row, "Date of Final Status Update"),
             ]
             for ci, (val, (col_name, _)) in enumerate(zip(values, SE_PROC_COLS), start=1):
                 cell = ws.cell(row=ri, column=ci, value=val)
@@ -319,8 +373,8 @@ def run_saltedge_nexpay(
         for ri, (_, row) in enumerate(df.iterrows(), start=2):
             alt = ALT if ri % 2 == 0 else WHITE
             values = [
-                _v(row, "Creation Date"),
-                _v(row, "Processing Date"),
+                _vd(row, "Creation Date"),
+                _vd(row, "Processing Date"),
                 _v(row, "Beneficiary / Sender"),
                 _v(row, "Account number"),
                 row["_nx_amt"] if row["_nx_amt"] != 0 else None,
@@ -348,7 +402,7 @@ def run_saltedge_nexpay(
                 _v(row, "Payment ID"),
                 _v(row, "Customer Name"),
                 row["_se_amt"] if row["_se_amt"] != 0 else None,
-                _v(row, "Date of Final Status Update"),
+                _vd(row, "Date of Final Status Update"),
                 "",
             ]
             for ci, (val, (col_name, _)) in enumerate(zip(values, UNMATCHED_COLS), start=1):
@@ -370,7 +424,7 @@ def run_saltedge_nexpay(
                 _v(row, "Payment number"),
                 _v(row, "Beneficiary / Sender"),
                 row["_nx_amt"] if row["_nx_amt"] != 0 else None,
-                _v(row, "Creation Date"),
+                _vd(row, "Creation Date"),
                 _v(row, "Details"),
             ]
             for ci, (val, (col_name, _)) in enumerate(zip(values, UNMATCHED_COLS), start=1):
