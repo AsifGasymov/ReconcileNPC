@@ -14,7 +14,8 @@ class MultiFileCard(QFrame):
     paths_changed = Signal(list)
 
     def __init__(self, title: str, *, hint: str = "Drop files or click Add",
-                 extensions: list[str] | None = None, max_items: int = 9,
+                 extensions: list[str] | None = None,
+                 max_items: int | None = 9,
                  parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("card")
@@ -34,7 +35,7 @@ class MultiFileCard(QFrame):
         head.setSpacing(6)
         title_lbl = QLabel(title)
         title_lbl.setObjectName("cardTitle")
-        self._counter = QLabel(f"0 / {max_items}")
+        self._counter = QLabel(self._counter_text(0))
         self._counter.setObjectName("muted")
         head.addWidget(title_lbl)
         head.addStretch()
@@ -112,7 +113,9 @@ class MultiFileCard(QFrame):
         self._refresh()
 
     def _add_path(self, path: str) -> None:
-        if path in self._paths or len(self._paths) >= self._max:
+        if path in self._paths:
+            return
+        if self._max is not None and len(self._paths) >= self._max:
             return
         self._paths.append(path)
         item = QListWidgetItem(Path(path).name)
@@ -120,9 +123,12 @@ class MultiFileCard(QFrame):
         self._list.addItem(item)
         self._refresh()
 
+    def _counter_text(self, n: int) -> str:
+        return f"{n} / {self._max}" if self._max is not None else str(n)
+
     def _refresh(self) -> None:
         n = len(self._paths)
-        self._counter.setText(f"{n} / {self._max}")
+        self._counter.setText(self._counter_text(n))
         has = n > 0
         self._list.setVisible(has)
         self._subtitle.setVisible(not has)

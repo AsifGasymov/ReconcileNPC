@@ -272,20 +272,38 @@ def run_decta_recon(*, main_path: str, registry_path: str,
                          if provider_dfs else pd.DataFrame())
     lg(f"  Total provider rows: {len(combined_provider)}")
 
-    # Build lookup: Payment ID → enrichment fields
+    # Build lookup: Payment ID → enrichment fields, with an "Order" (AJ) fallback
+    # for provider rows that a Payment ID/Product-description match would miss.
     prov_lookup: dict[str, dict] = {}
+    prov_lookup_by_order: dict[str, dict] = {}
     if not combined_provider.empty:
         for _, row in combined_provider.iterrows():
             pid = str(row.get("Payment ID", "")).strip()
-            if not pid:
+            order_val = row.get("Order")
+            order = str(order_val).strip() if pd.notna(order_val) else ""
+            if not pid and not order:
                 continue
-            prov_lookup[pid] = {
+            enrichment = {
                 "Merchant Name":     str(row.get("Merchant Name", "") or ""),
                 "Descriptor":        str(row.get("Descriptor", "") or ""),
                 "Provider currency": str(row.get("Currency", "") or ""),
                 "Amount":            _fmt_num(str(row.get("Total", "") or "")),
                 "Transaction Date":  str(row.get("Transaction Date", "") or ""),
             }
+            if pid:
+                prov_lookup[pid] = enrichment
+            if order:
+                prov_lookup_by_order.setdefault(order, enrichment)
+
+    def _prov_match(pid: str) -> dict:
+        return prov_lookup.get(pid) or prov_lookup_by_order.get(pid) or {}
+
+    if prov_lookup_by_order:
+        fallback_hits = sum(
+            1 for pid in new_df["Payment ID"]
+            if pid not in prov_lookup and pid in prov_lookup_by_order
+        )
+        lg(f"  Order (AJ) fallback matched {fallback_hits} row(s) missed by Payment ID")
 
     lg("Transforming columns…")
     for col in list(DROP_COLS):
@@ -294,21 +312,21 @@ def run_decta_recon(*, main_path: str, registry_path: str,
 
     new_df.insert(0, "Transaction date +1",
                   new_df["Payment ID"].map(
-                      lambda x: prov_lookup.get(x, {}).get("Transaction Date", ""))
-                  if prov_lookup else "")
+                      lambda x: _prov_match(x).get("Transaction Date", ""))
+                  if (prov_lookup or prov_lookup_by_order) else "")
 
     pid_idx = new_df.columns.tolist().index("Payment ID") + 1
     new_df.insert(pid_idx,     "Merchant Name",
-                  new_df["Payment ID"].map(lambda x: prov_lookup.get(x, {}).get("Merchant Name", "")))
+                  new_df["Payment ID"].map(lambda x: _prov_match(x).get("Merchant Name", "")))
     new_df.insert(pid_idx + 1, "Descriptor",
-                  new_df["Payment ID"].map(lambda x: prov_lookup.get(x, {}).get("Descriptor", "")))
+                  new_df["Payment ID"].map(lambda x: _prov_match(x).get("Descriptor", "")))
     new_df.insert(pid_idx + 2, "FTD/TD", "")
 
     if "Currency" in new_df.columns:
         cur_idx = new_df.columns.tolist().index("Currency") + 1
         new_df.insert(cur_idx, "Provider currency",
                       new_df["Payment ID"].map(
-                          lambda x: prov_lookup.get(x, {}).get("Provider currency", "")))
+                          lambda x: _prov_match(x).get("Provider currency", "")))
     else:
         new_df["Provider currency"] = ""
 
@@ -317,7 +335,7 @@ def run_decta_recon(*, main_path: str, registry_path: str,
             new_df[col] = new_df[col].apply(_fmt_num)
 
     new_df["Amount"] = new_df["Payment ID"].map(
-        lambda x: prov_lookup.get(x, {}).get("Amount", ""))
+        lambda x: _prov_match(x).get("Amount", ""))
 
     # Build DCT sheet
     dct_df = pd.DataFrame()

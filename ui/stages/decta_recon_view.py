@@ -60,9 +60,9 @@ class DectaReconView(QWidget):
         )
         self._providers = MultiFileCard(
             "Provider files",
-            hint="XLSX files — CDQ/provider exports (up to 9)",
+            hint="XLSX files — CDQ/provider exports",
             extensions=[".xlsx", ".xls", ".csv"],
-            max_items=9,
+            max_items=None,
         )
         self._output = FolderCard(
             "Output folder",
