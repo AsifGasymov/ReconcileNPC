@@ -11,7 +11,6 @@ from services.backup import archive_output, prune_old_backups
 from services.settings import get_output_dir, set_output_dir
 from services.worker import start_worker
 
-from ..widgets.file_card import FileCard
 from ..widgets.folder_card import FolderCard
 from ..widgets.multi_file_card import MultiFileCard
 from ..widgets.progress_card import ProgressCard
@@ -54,10 +53,11 @@ class DCTView(QWidget):
             extensions=[".xlsx"],
             max_items=None,
         )
-        self._trx = FileCard(
-            "TRX file",
-            hint="XLSX with Merchant path, Currency, Shipment date…",
+        self._trx = MultiFileCard(
+            "TRX files",
+            hint="XLSX with Merchant path, Currency, Shipment date… — drop multiple to combine",
             extensions=[".xlsx"],
+            max_items=None,
         )
         self._recon = MultiFileCard(
             "DCT Stage 1 output (optional)",
@@ -98,14 +98,13 @@ class DCTView(QWidget):
         layout.addStretch()
 
         self._stmt.paths_changed.connect(lambda *_: self._refresh_enabled())
-        self._trx.file_selected.connect(lambda *_: self._refresh_enabled())
-        self._trx.cleared.connect(self._refresh_enabled)
+        self._trx.paths_changed.connect(lambda *_: self._refresh_enabled())
 
         self._thread = None
         self._worker = None
 
     def _refresh_enabled(self) -> None:
-        ready = bool(self._stmt.paths() and self._trx.path() and self._output.path())
+        ready = bool(self._stmt.paths() and self._trx.paths() and self._output.path())
         self._run_btn.setEnabled(ready)
 
     def _on_run(self) -> None:
@@ -119,7 +118,7 @@ class DCTView(QWidget):
             self,
             run_dct,
             statement_paths=self._stmt.paths(),
-            trx_path=self._trx.path(),
+            trx_paths=self._trx.paths(),
             recon_paths=self._recon.paths() or None,
             out_dir=self._output.path(),
         )

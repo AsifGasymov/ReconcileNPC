@@ -564,9 +564,9 @@ def _load_arn_payment_id_map(recon_path: str, log: Optional[LogFn] = None) -> di
         return {}
 
 
-def _build_workbook(rates: dict, trx_path: str, out_path: str,
-                    arn_pid_map: dict[str, str] | None = None,
-                    log: Optional[LogFn] = None) -> tuple[int, int]:
+def _load_trx_sheet(trx_path: str) -> tuple[list, list]:
+    """Return (headers, data_rows) for one TRX export, locating the real
+    header row dynamically (some exports prepend title/blank rows)."""
     wb_trx = load_workbook(trx_path)
     ws = wb_trx.active
     rows = list(ws.iter_rows(values_only=True))
@@ -578,6 +578,22 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
             header_row_idx = i
             break
     headers = list(rows[header_row_idx])
+    return headers, rows[header_row_idx + 1:]
+
+
+def _build_workbook(rates: dict, trx_paths: list[str], out_path: str,
+                    arn_pid_map: dict[str, str] | None = None,
+                    log: Optional[LogFn] = None) -> tuple[int, int]:
+    headers: list | None = None
+    rows: list = []
+    for tp in trx_paths:
+        h, d = _load_trx_sheet(tp)
+        if headers is None:
+            headers = h
+        rows.extend(d)
+        if log:
+            log(f"  {Path(tp).name}: {len(d)} rows")
+    headers = headers or []
 
     def ci(name: str) -> int | None:
         try:
@@ -638,7 +654,7 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
     PLACEHOLDER_VALS = ("", "'_", "'--", "'-")
 
     data_rows = [
-        r for r in rows[header_row_idx + 1:]
+        r for r in rows
         if any(v for v in r)
         and not all(str(v or "").strip() in PLACEHOLDER_VALS for v in r)
         # Drop the report's own "Total" summary row (blank Merchant path,
@@ -794,7 +810,7 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
     return len(data_rows), matched
 
 
-def run_dct(*, statement_paths: list[str], trx_path: str, out_dir: str,
+def run_dct(*, statement_paths: list[str], trx_paths: list[str], out_dir: str,
             recon_paths: Optional[list[str]] = None,
             log: Optional[LogFn] = None) -> DCTResult:
     def lg(msg: str) -> None:
@@ -820,12 +836,12 @@ def run_dct(*, statement_paths: list[str], trx_path: str, out_dir: str,
             arn_pid_map.update(_load_arn_payment_id_map(rp, lg))
         lg(f"  Combined ARN → Payment ID entries: {len(arn_pid_map)}")
 
-    lg("Reading TRX file…")
+    lg("Reading TRX file(s)…")
     out_name = f"TRX_with_rates_{datetime.now().strftime('%d-%m-%Y')}.xlsx"
     out_path = str(Path(out_dir) / out_name)
 
     lg("Building workbook…")
-    total, matched = _build_workbook(rates, trx_path, out_path, arn_pid_map, lg)
+    total, matched = _build_workbook(rates, trx_paths, out_path, arn_pid_map, lg)
     lg(f"  Matched: {matched} / {total}")
 
     return DCTResult(
