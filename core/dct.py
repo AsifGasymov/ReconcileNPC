@@ -635,10 +635,15 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
 
     ws_out.freeze_panes = "A2"
 
+    PLACEHOLDER_VALS = ("", "'_", "'--", "'-")
+
     data_rows = [
         r for r in rows[header_row_idx + 1:]
-        if any(v for v in r) and
-        not all(str(v or "").strip() in ("", "'_", "'--") for v in r)
+        if any(v for v in r)
+        and not all(str(v or "").strip() in PLACEHOLDER_VALS for v in r)
+        # Drop the report's own "Total" summary row (blank Merchant path,
+        # placeholder text in ARN/Retention reference/etc.)
+        and (path_idx is None or str(r[path_idx] or "").strip() not in PLACEHOLDER_VALS)
     ]
 
     matched = 0
@@ -679,6 +684,8 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
         col_cursor = 1
         for i, (idx, hname) in enumerate(zip(src_indices, out_names)):
             val = row[idx] if idx is not None else None
+            if isinstance(val, str) and val.strip() in PLACEHOLDER_VALS:
+                val = None
             fmt = None
             al  = "right" if hname in RIGHT_COLS else ("center" if hname in CENTER_COLS else "left")
 
