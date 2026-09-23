@@ -59,10 +59,11 @@ class DCTView(QWidget):
             hint="XLSX with Merchant path, Currency, Shipment date…",
             extensions=[".xlsx"],
         )
-        self._recon = FileCard(
+        self._recon = MultiFileCard(
             "DCT Stage 1 output (optional)",
-            hint="Итоговый файл сверки — добавит Payment ID по ARN",
+            hint="Файлы сверки — добавят Payment ID по ARN (можно несколько)",
             extensions=[".xlsx"],
+            max_items=None,
         )
         self._output = FolderCard(
             "Output folder",
@@ -119,7 +120,7 @@ class DCTView(QWidget):
             run_dct,
             statement_paths=self._stmt.paths(),
             trx_path=self._trx.path(),
-            recon_path=self._recon.path() or None,
+            recon_paths=self._recon.paths() or None,
             out_dir=self._output.path(),
         )
         self._worker.log.connect(self._on_log)

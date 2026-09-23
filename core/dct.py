@@ -795,7 +795,7 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
 
 
 def run_dct(*, statement_paths: list[str], trx_path: str, out_dir: str,
-            recon_path: Optional[str] = None,
+            recon_paths: Optional[list[str]] = None,
             log: Optional[LogFn] = None) -> DCTResult:
     def lg(msg: str) -> None:
         if log:
@@ -813,9 +813,12 @@ def run_dct(*, statement_paths: list[str], trx_path: str, out_dir: str,
     lg(f"  Rate keys found: {len(rates)}")
 
     arn_pid_map: dict[str, str] | None = None
-    if recon_path:
-        lg("Loading ARN → Payment ID from Stage 1 output…")
-        arn_pid_map = _load_arn_payment_id_map(recon_path, lg)
+    if recon_paths:
+        arn_pid_map = {}
+        for rp in recon_paths:
+            lg(f"Loading ARN → Payment ID from {Path(rp).name}…")
+            arn_pid_map.update(_load_arn_payment_id_map(rp, lg))
+        lg(f"  Combined ARN → Payment ID entries: {len(arn_pid_map)}")
 
     lg("Reading TRX file…")
     out_name = f"TRX_with_rates_{datetime.now().strftime('%d-%m-%Y')}.xlsx"
