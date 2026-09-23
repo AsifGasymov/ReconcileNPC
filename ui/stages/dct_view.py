@@ -13,6 +13,7 @@ from services.worker import start_worker
 
 from ..widgets.file_card import FileCard
 from ..widgets.folder_card import FolderCard
+from ..widgets.multi_file_card import MultiFileCard
 from ..widgets.progress_card import ProgressCard
 from ..widgets.result_card import ResultCard
 
@@ -47,10 +48,11 @@ class DCTView(QWidget):
         layout.addWidget(sub)
         layout.addSpacing(8)
 
-        self._stmt = FileCard(
-            "Statement file",
-            hint="XLSX with SA-EUR_* / SA-USD_* sheets",
+        self._stmt = MultiFileCard(
+            "Statement files",
+            hint="XLSX with SA-EUR_* / SA-USD_* sheets — drop multiple to combine",
             extensions=[".xlsx"],
+            max_items=None,
         )
         self._trx = FileCard(
             "TRX file",
@@ -94,8 +96,7 @@ class DCTView(QWidget):
 
         layout.addStretch()
 
-        self._stmt.file_selected.connect(lambda *_: self._refresh_enabled())
-        self._stmt.cleared.connect(self._refresh_enabled)
+        self._stmt.paths_changed.connect(lambda *_: self._refresh_enabled())
         self._trx.file_selected.connect(lambda *_: self._refresh_enabled())
         self._trx.cleared.connect(self._refresh_enabled)
 
@@ -103,7 +104,7 @@ class DCTView(QWidget):
         self._worker = None
 
     def _refresh_enabled(self) -> None:
-        ready = bool(self._stmt.path() and self._trx.path() and self._output.path())
+        ready = bool(self._stmt.paths() and self._trx.path() and self._output.path())
         self._run_btn.setEnabled(ready)
 
     def _on_run(self) -> None:
@@ -116,7 +117,7 @@ class DCTView(QWidget):
         self._thread, self._worker = start_worker(
             self,
             run_dct,
-            statement_path=self._stmt.path(),
+            statement_paths=self._stmt.paths(),
             trx_path=self._trx.path(),
             recon_path=self._recon.path() or None,
             out_dir=self._output.path(),

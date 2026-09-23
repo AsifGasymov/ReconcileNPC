@@ -794,15 +794,22 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
     return len(data_rows), matched
 
 
-def run_dct(*, statement_path: str, trx_path: str, out_dir: str,
+def run_dct(*, statement_paths: list[str], trx_path: str, out_dir: str,
             recon_path: Optional[str] = None,
             log: Optional[LogFn] = None) -> DCTResult:
     def lg(msg: str) -> None:
         if log:
             log(msg)
 
-    lg("Extracting rates from Statement…")
-    rates = _extract_rates(statement_path, lg)
+    rates: dict = {}
+    for sp in statement_paths:
+        lg(f"Extracting rates from {Path(sp).name}…")
+        try:
+            sp_rates = _extract_rates(sp, lg)
+        except Exception as e:
+            lg(f"  SKIP {Path(sp).name}: {e}")
+            continue
+        rates.update(sp_rates)
     lg(f"  Rate keys found: {len(rates)}")
 
     arn_pid_map: dict[str, str] | None = None
