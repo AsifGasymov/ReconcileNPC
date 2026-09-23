@@ -40,6 +40,20 @@ SA_TO_PATH = {
     "SA-USD_FVcy": "DCTCY.FUSIOVIBES",
 }
 
+# Newer statement exports use bare "SA-EUR"/"SA-USD" sheet names (no per-merchant
+# suffix) — the merchant is identified by the company name printed on the
+# matching "Statement EUR"/"Statement USD" sheet instead.
+BARE_SA_COMPANY_TO_PATH = {
+    "Zevrix OÜ":  "DCT.ZEVRIXOU",
+    "Cirvexa OÜ": "DCT.CIRVEXAOU",
+}
+
+# A third export style ships "<Company>_EUR" / "<Company>_USD" / "<Company>_Trx list"
+# sheets instead of Statement/SA pairs. Merchant identified by the company prefix.
+TRX_LIST_COMPANY_TO_PATH = {
+    "CIRVEXA OU": "DCTCY.CIRVEXA",
+}
+
 # ─── Styles ───────────────────────────────────────────────────────────────────
 HDR_FILL  = PatternFill("solid", start_color="1E293B")
 HDR_FONT  = Font(name="Calibri", size=9, bold=True, color="F8FAFC")
@@ -94,6 +108,32 @@ def _parse_settle_dates(raw: str) -> list[str]:
         d, mo, yr = m2.groups()
         return [datetime(int(yr), int(mo), int(d)).strftime("%Y-%m-%d")]
     return [raw]
+
+
+def _cell_to_settle_dates(raw) -> list[str]:
+    """SETTLEMENT PERIOD cell can be a "dd.mm.-dd.mm.yyyy" string or a real date."""
+    if hasattr(raw, "strftime"):
+        return [raw.strftime("%Y-%m-%d")]
+    return _parse_settle_dates(str(raw).strip())
+
+
+def _find_usd_eur_rate(ws, max_row: int = 80) -> float | None:
+    """Scan a sheet for a "X USD -- Y EUR" line and return EUR-per-USD (eur/usd)."""
+    for row in ws.iter_rows(max_row=max_row, values_only=True):
+        for cell_val in row:
+            if not cell_val:
+                continue
+            m = re.search(r"([\d,\.]+)\s*USD\s*--\s*([\d,\.]+)\s*EUR", str(cell_val))
+            if not m:
+                continue
+            try:
+                usd_sum = float(m.group(1).replace(",", ""))
+                eur_sum = float(m.group(2).replace(",", ""))
+            except (ValueError, TypeError):
+                continue
+            if usd_sum:
+                return eur_sum / usd_sum
+    return None
 
 
 def _extract_rates(stmt_path: str, log: Optional[LogFn] = None) -> dict:
@@ -205,6 +245,224 @@ def _extract_rates(stmt_path: str, log: Optional[LogFn] = None) -> dict:
                         pass
                     break
 
+    # ─── Bare "SA-EUR"/"SA-USD" sheets: merchant identified by company name ───
+    # NOTE: only "SA-EUR" is used for the per-group (network × currency) ratio —
+    # its "Amount" column is genuinely in EUR. "SA-USD"'s "Amount" column is in
+    # USD, so the same Amount/OriginalAmount ratio there would yield "USD per
+    # foreign unit", not "EUR per foreign unit" — wrong unit for a EUR target.
+    # USD-native transactions are instead converted via the dedicated USD→EUR
+    # payout-total rate below, whichever statement it's found on.
+    bare_merchant_path = None
+    eur_settle_dates: list[str] = []
+    usd_settle_dates: list[str] = []
+
+    if "SA-EUR" in wb.sheetnames and "Statement EUR" in wb.sheetnames:
+        ws_stmt = wb["Statement EUR"]
+        company = str(ws_stmt.cell(row=4, column=5).value or "").strip()
+        path = BARE_SA_COMPANY_TO_PATH.get(company)
+        if path:
+            bare_merchant_path = path
+            for row in ws_stmt.iter_rows(max_row=15, values_only=True):
+                if row[4] and "SETTLEMENT PERIOD" in str(row[4]):
+                    eur_settle_dates = _cell_to_settle_dates(row[5])
+                    break
+        elif log:
+            log(f"  Unknown company '{company}' in Statement EUR — "
+                f"register it in BARE_SA_COMPANY_TO_PATH")
+
+    if "SA-USD" in wb.sheetnames and "Statement USD" in wb.sheetnames:
+        ws_stmt_usd = wb["Statement USD"]
+        company_usd = str(ws_stmt_usd.cell(row=4, column=5).value or "").strip()
+        path_usd = BARE_SA_COMPANY_TO_PATH.get(company_usd)
+        if path_usd:
+            bare_merchant_path = bare_merchant_path or path_usd
+            for row in ws_stmt_usd.iter_rows(max_row=15, values_only=True):
+                if row[4] and "SETTLEMENT PERIOD" in str(row[4]):
+                    usd_settle_dates = _cell_to_settle_dates(row[5])
+                    break
+        elif log:
+            log(f"  Unknown company '{company_usd}' in Statement USD — "
+                f"register it in BARE_SA_COMPANY_TO_PATH")
+
+    if bare_merchant_path:
+        merchant_path = bare_merchant_path
+
+        if "SA-EUR" in wb.sheetnames and eur_settle_dates:
+            ws_sa = wb["SA-EUR"]
+            sa_rows = list(ws_sa.iter_rows(values_only=True))
+            hdrs = [str(c or "").strip() for c in sa_rows[0]]
+
+            def col_idx(name: str, _hdrs=hdrs) -> int | None:
+                try:
+                    return _hdrs.index(name)
+                except ValueError:
+                    return None
+
+            i_amt      = col_idx("Amount")
+            i_orig_amt = col_idx("OriginalAmount")
+            i_orig_ccy = col_idx("OriginalCCY")
+
+            sums: dict = {}
+            for r in sa_rows[1:]:
+                if not any(v for v in r):
+                    continue
+                desc = str(r[1] or "")
+                if "Settlement with merchants" not in desc:
+                    continue
+                ips = "VISA" if "VISA" in desc else ("MC" if ("MC" in desc or "Mastercard" in desc) else None)
+                if not ips:
+                    continue
+                try:
+                    amount = float(r[i_amt] or 0) if i_amt is not None else 0
+                except (TypeError, ValueError):
+                    continue
+
+                orig_ccy = str(r[i_orig_ccy] or "").strip() if i_orig_ccy is not None else ""
+                if not orig_ccy or orig_ccy in ("None", ""):
+                    orig_ccy = "EUR"
+                try:
+                    orig_amt = float(r[i_orig_amt] or 0) if i_orig_amt is not None else 0
+                except (TypeError, ValueError):
+                    orig_amt = 0
+                if orig_amt == 0:
+                    continue
+
+                key = (ips, orig_ccy)
+                sums.setdefault(key, {"amount": 0.0, "orig": 0.0})
+                sums[key]["amount"] += amount
+                sums[key]["orig"]   += orig_amt
+
+            for (ips, orig_ccy), v in sums.items():
+                if v["orig"] != 0:
+                    rate = v["amount"] / v["orig"]
+                    for sd in eur_settle_dates:
+                        rates[(merchant_path, ips, orig_ccy, sd)] = rate
+                    if log:
+                        log(f"  {merchant_path} | {ips} | {orig_ccy} | {eur_settle_dates[0]}… → {rate:.6f}")
+
+            for ips in ["VISA", "MC"]:
+                for sd in eur_settle_dates:
+                    rates.setdefault((merchant_path, ips, "EUR", sd), 1.0)
+
+        usd_rate = None
+        if "Statement EUR" in wb.sheetnames:
+            usd_rate = _find_usd_eur_rate(wb["Statement EUR"])
+        if usd_rate is None and "Statement USD" in wb.sheetnames:
+            usd_rate = _find_usd_eur_rate(wb["Statement USD"])
+        usd_dates = usd_settle_dates or eur_settle_dates
+        if usd_rate is not None and usd_dates:
+            for ips in ["VISA", "MC"]:
+                for sd in usd_dates:
+                    rates.setdefault((merchant_path, ips, "USD", sd), usd_rate)
+            if log:
+                log(f"  {merchant_path} | USD→EUR → {usd_rate:.6f}")
+
+    # ─── "<Company>_EUR" / "<Company>_USD" / "<Company>_Trx list" exports ───
+    trx_list_sheets = [s for s in wb.sheetnames if s.endswith("_Trx list")]
+    for trx_sheet in trx_list_sheets:
+        company = trx_sheet[: -len("_Trx list")].strip()
+        merchant_path = TRX_LIST_COMPANY_TO_PATH.get(company)
+        if not merchant_path:
+            if log:
+                log(f"  Unknown company '{company}' in {trx_sheet} — "
+                    f"register it in TRX_LIST_COMPANY_TO_PATH")
+            continue
+
+        eur_sheet = f"{company}_EUR"
+        usd_sheet = f"{company}_USD"
+        date_sheet = eur_sheet if eur_sheet in wb.sheetnames else usd_sheet
+
+        settle_dates = []
+        if date_sheet in wb.sheetnames:
+            for row in wb[date_sheet].iter_rows(max_row=15, values_only=True):
+                if row[4] and "SETTLEMENT PERIOD" in str(row[4]):
+                    settle_dates = _cell_to_settle_dates(row[5])
+                    break
+        if not settle_dates:
+            if log:
+                log(f"  No date in {date_sheet}")
+            continue
+
+        ws_trx = wb[trx_sheet]
+        trx_rows = list(ws_trx.iter_rows(values_only=True))
+
+        header_row_idx = None
+        hdrs: list[str] = []
+        for i, r in enumerate(trx_rows):
+            cells = [str(c or "").strip() for c in r]
+            if "CARD_BRAND" in cells and "TRAN_TYPE_DESC" in cells:
+                header_row_idx = i
+                hdrs = cells
+                break
+        if header_row_idx is None:
+            if log:
+                log(f"  {trx_sheet}: header row not found — skipping")
+            continue
+
+        def col_idx2(name: str, _hdrs=hdrs) -> int | None:
+            try:
+                return _hdrs.index(name)
+            except ValueError:
+                return None
+
+        i_brand = col_idx2("CARD_BRAND")
+        i_type  = col_idx2("TRAN_TYPE_DESC")
+        i_ccy   = col_idx2("ORIGINAL CCY")
+        i_amt2  = col_idx2("AMOUNT")
+        i_conv  = col_idx2("CONV_AMOUNT_EUR")
+
+        sums = {}
+        for r in trx_rows[header_row_idx + 1:]:
+            if i_type is None or str(r[i_type] or "").strip() != "Purchase":
+                continue
+            brand = str(r[i_brand] or "").strip().upper() if i_brand is not None else ""
+            ips = "VISA" if brand == "VISA" else ("MC" if brand in ("MC", "MASTERCARD") else None)
+            if not ips:
+                continue
+            orig_ccy = str(r[i_ccy] or "").strip() if i_ccy is not None else ""
+            if not orig_ccy or orig_ccy == "EUR":
+                continue  # EUR-native purchases convert 1:1 — handled by the fallback below
+            try:
+                amount = float(r[i_amt2] or 0) if i_amt2 is not None else 0
+            except (TypeError, ValueError):
+                continue
+            conv_raw = r[i_conv] if i_conv is not None else None
+            if conv_raw in (None, "") or amount == 0:
+                continue
+            try:
+                conv_eur = float(conv_raw)
+            except (TypeError, ValueError):
+                continue
+
+            key = (ips, orig_ccy)
+            sums.setdefault(key, {"amount": 0.0, "orig": 0.0})
+            sums[key]["amount"] += conv_eur
+            sums[key]["orig"]   += amount
+
+        for (ips, orig_ccy), v in sums.items():
+            if v["orig"] != 0:
+                rate = v["amount"] / v["orig"]
+                for sd in settle_dates:
+                    rates[(merchant_path, ips, orig_ccy, sd)] = rate
+                if log:
+                    log(f"  {merchant_path} | {ips} | {orig_ccy} | {settle_dates[0]}… → {rate:.6f}")
+
+        for ips in ["VISA", "MC"]:
+            for sd in settle_dates:
+                rates.setdefault((merchant_path, ips, "EUR", sd), 1.0)
+
+        usd_rate = None
+        if eur_sheet in wb.sheetnames:
+            usd_rate = _find_usd_eur_rate(wb[eur_sheet])
+        if usd_rate is None and usd_sheet in wb.sheetnames:
+            usd_rate = _find_usd_eur_rate(wb[usd_sheet])
+        if usd_rate is not None:
+            for ips in ["VISA", "MC"]:
+                for sd in settle_dates:
+                    rates.setdefault((merchant_path, ips, "USD", sd), usd_rate)
+            if log:
+                log(f"  {merchant_path} | USD→EUR → {usd_rate:.6f}")
+
     return rates
 
 
@@ -312,7 +570,14 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
     wb_trx = load_workbook(trx_path)
     ws = wb_trx.active
     rows = list(ws.iter_rows(values_only=True))
-    headers = list(rows[0])
+
+    header_row_idx = 0
+    for i, r in enumerate(rows[:15]):
+        cells = [str(c or "").strip() for c in r]
+        if "Merchant path" in cells and "Transaction amount" in cells:
+            header_row_idx = i
+            break
+    headers = list(rows[header_row_idx])
 
     def ci(name: str) -> int | None:
         try:
@@ -371,7 +636,7 @@ def _build_workbook(rates: dict, trx_path: str, out_path: str,
     ws_out.freeze_panes = "A2"
 
     data_rows = [
-        r for r in rows[1:]
+        r for r in rows[header_row_idx + 1:]
         if any(v for v in r) and
         not all(str(v or "").strip() in ("", "'_", "'--") for v in r)
     ]
