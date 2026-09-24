@@ -10,6 +10,7 @@ from .stages.erp_view import ERPView
 from .stages.decta_recon_view import DectaReconView
 from .stages.dct_view import DCTView
 from .stages.saltedge_view import ManoBankView, NexpayView
+from .stages.xmgate_view import XMGateView
 from .settings_view import SettingsView
 from .widgets.sidebar import Sidebar
 
@@ -19,7 +20,8 @@ DCT_RECON  = 1
 DCT_RATE   = 2
 SE_MANO    = 3
 SE_NEXPAY  = 4
-SETTINGS   = 5
+XMG_DUPES  = 5
+SETTINGS   = 6
 
 
 class MainWindow(QMainWindow):
@@ -44,7 +46,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(DCTView())         # 2 DCT Rate Tool
         self._stack.addWidget(ManoBankView())    # 3 Saltedge ManoBank
         self._stack.addWidget(NexpayView())      # 4 Saltedge Nexpay
-        self._stack.addWidget(SettingsView())    # 5 Settings
+        self._stack.addWidget(XMGateView())      # 5 XMGate Duplicates
+        self._stack.addWidget(SettingsView())    # 6 Settings
         layout.addWidget(self._stack, 1)
 
         self.setCentralWidget(root)

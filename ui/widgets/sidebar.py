@@ -43,6 +43,7 @@ class Sidebar(QWidget):
     # 2 = DCT · Rate Tool
     # 3 = Saltedge · ManoBank
     # 4 = Saltedge · Nexpay
+    # 5 = XMGate · Duplicates
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -96,6 +97,16 @@ class Sidebar(QWidget):
         layout.addWidget(self._se1)
         layout.addWidget(self._se2)
 
+        layout.addSpacing(14)
+
+        # ── XMGate section ────────────────────────────────────────────────────
+        layout.addWidget(_SectionLabel("XMGATE"))
+        layout.addSpacing(2)
+
+        self._xm1 = NavButton("  1  ·  Duplicates")
+        self._xm1.clicked.connect(lambda: self._select(5))
+        layout.addWidget(self._xm1)
+
         layout.addStretch()
 
         # Footer
@@ -122,7 +133,7 @@ class Sidebar(QWidget):
         layout.addWidget(version)
 
         self._all_btns = [self._cdq1, self._dct1, self._dct2,
-                          self._se1, self._se2]
+                          self._se1, self._se2, self._xm1]
         self._select(0)
 
     def _select(self, idx: int) -> None:
